@@ -4,6 +4,7 @@ import (
 	"crypto/des"
 	"encoding/hex"
 	"fmt"
+	"strconv"
 	"strings"
 )
 
@@ -41,21 +42,75 @@ func (f *pinBlockFormat0) Encrypt() (pinEncrypted string, err error) {
 	return hex.EncodeToString(ciphertext), nil
 }
 
+func (f *pinBlockFormat0) Decrypt(message string) (pin string, err error) {
+	encryptedMessage, err := hex.DecodeString(message)
+	if err != nil {
+		return pin, err
+	}
+
+	zpk, err := hex.DecodeString(f.zpk)
+	if err != nil {
+		return pin, err
+	}
+
+	var tripleDESKey []byte
+	tripleDESKey = append(tripleDESKey, zpk[:16]...)
+	tripleDESKey = append(tripleDESKey, zpk[:8]...)
+
+	block, err := des.NewTripleDESCipher(tripleDESKey)
+	if err != nil {
+		return pin, err
+	}
+
+	pinEncrypted := make([]byte, len(encryptedMessage))
+	block.Decrypt(pinEncrypted, encryptedMessage)
+
+	pin, err = f.decryptPinBlock(pinEncrypted)
+	if err != nil {
+		return pin, err
+	}
+
+	return pin, nil
+}
+
+func (f *pinBlockFormat0) decryptPinBlock(pinEncrypted []byte) (pin string, err error) {
+	panBlockHex, err := f.panBlock(f.pan)
+	if err != nil {
+		return pin, err
+	}
+
+	dPan, err := hex.DecodeString(panBlockHex)
+	if err != nil {
+		return pin, err
+	}
+
+	var (
+		dPin     = xor(dPan, pinEncrypted)
+		pinBlock = hex.EncodeToString(dPin)
+	)
+
+	pin, err = f.decodePinBlock(pinBlock)
+	if err != nil {
+		return pin, err
+	}
+	return pin, nil
+}
+
 // Generate Clear Pin Block
 func (f *pinBlockFormat0) generatePinBlock() (clearPinBlock []byte, err error) {
 
-	var pinBlockHex = f.pinBlock(f.pin)
-	panBlockHex, err := f.panBlock(f.pan)
+	var pinBlock = f.pinBlock(f.pin)
+	panBlock, err := f.panBlock(f.pan)
 	if err != nil {
 		return clearPinBlock, err
 	}
 
-	dPin, err := hex.DecodeString(string(pinBlockHex))
+	dPin, err := hex.DecodeString(pinBlock)
 	if err != nil {
 		return clearPinBlock, err
 	}
 
-	dPan, err := hex.DecodeString(string(panBlockHex))
+	dPan, err := hex.DecodeString(panBlock)
 	if err != nil {
 		return clearPinBlock, err
 	}
@@ -84,6 +139,16 @@ func (f *pinBlockFormat0) panBlock(pan string) (panBLock string, err error) {
 	}
 
 	return fmt.Sprintf("0000%s", pan[panLength-maxPanLength-1:panLength-1]), nil
+}
+
+// PIN = Personal Identity Number
+func (f *pinBlockFormat0) decodePinBlock(pinBlock string) (string, error) {
+	const pinStartPosition = 2
+	pinLength, err := strconv.Atoi(pinBlock[1:2])
+	if err != nil {
+		return "", err
+	}
+	return pinBlock[pinStartPosition : pinStartPosition+pinLength], nil
 }
 
 func xor(left, right []byte) []byte {
