@@ -7,6 +7,7 @@ const (
 type (
 	PinBlock interface {
 		Encrypt() (string, error)
+		Decrypt(message string) (string, error)
 	}
 
 	pinBlockFormat0 struct {
